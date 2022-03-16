@@ -109,14 +109,79 @@ func dataToBlogPb(data *blogItem) *blogpb.Blog {
 	}
 }
 
-func (s server) UpdateBlog(context context.Context, request *blogpb.UpdateBlogRequest) (*blogpb.UpdateBlogResponse, error) {
-	//TODO implement
-	panic("implement")
+func (s server) UpdateBlog(ctx context.Context, request *blogpb.UpdateBlogRequest) (*blogpb.UpdateBlogResponse, error) {
+	fmt.Println("Update blog request...")
+	blog := request.GetBlog()
+	oid, error := primitive.ObjectIDFromHex(blog.GetId())
+	if error != nil {
+		return nil, status.Errorf(
+			codes.InvalidArgument,
+			fmt.Sprintf("Cannot parse ID"),
+		)
+	}
+
+	// create an empty struct
+	data := &blogItem{}
+	filter := bson.M{"_id": oid}
+
+	result := collection.FindOne(ctx, filter)
+	if error := result.Decode(data); error != nil {
+		return nil, status.Errorf(
+			codes.NotFound,
+			fmt.Sprintf("Can not find a blog with given ID: %v", error),
+		)
+	}
+
+	// perform update operation
+	data.AuthorID = blog.GetAuthorId()
+	data.Title = blog.GetTitle()
+	data.Content = blog.GetContent()
+
+	_, updateError := collection.ReplaceOne(context.Background(), filter, data)
+	if updateError != nil {
+		return nil, status.Errorf(
+			codes.Internal,
+			fmt.Sprintf("Can not update object in the Db: %v", updateError),
+		)
+	}
+
+	// prepare response
+	response := &blogpb.UpdateBlogResponse{
+		Blog: dataToBlogPb(data),
+	}
+
+	return response, nil
 }
 
-func (s server) DeleteBlog(context context.Context, request *blogpb.DeleteBlogRequest) (*blogpb.DeleteBlogResponse, error) {
-	//TODO implement
-	panic("implement")
+func (s server) DeleteBlog(ctx context.Context, request *blogpb.DeleteBlogRequest) (*blogpb.DeleteBlogResponse, error) {
+	fmt.Println("Delete blog request...")
+	oid, error := primitive.ObjectIDFromHex(request.GetBlogId())
+	if error != nil {
+		return nil, status.Errorf(
+			codes.InvalidArgument,
+			fmt.Sprintf("Cannot parse ID"),
+		)
+	}
+
+	filter := bson.M{"_id": oid}
+	deleteResult, deleteError := collection.DeleteOne(context.Background(), filter)
+	if deleteError != nil {
+		return nil, status.Errorf(
+			codes.Internal,
+			fmt.Sprintf("Can not delete object in the Db: %v", deleteError),
+		)
+	}
+
+	if deleteResult.DeletedCount == 0 {
+		return nil, status.Errorf(
+			codes.NotFound,
+			fmt.Sprintf("Can not find blog in the Db: %v", deleteError),
+		)
+	}
+
+	return &blogpb.DeleteBlogResponse{
+		BlogId: request.GetBlogId(),
+	}, nil
 }
 
 func (s server) ListBlog(request *blogpb.ListBlogRequest, blogServer blogpb.BlogService_ListBlogServer) error {

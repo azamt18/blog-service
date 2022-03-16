@@ -4,7 +4,6 @@ import (
 	"blog/blog/blogpb"
 	"context"
 	"fmt"
-	"github.com/simplesteph/grpc-go-course/greet/greetpb"
 	"google.golang.org/grpc"
 
 	"log"
@@ -31,36 +30,59 @@ func main() {
 		Content:  "Content 1",
 	}
 
-	createBlogResponse, createBlogError := c.CreateBlog(context.Background(), &blogpb.CreateBlogRequest{Blog: blog})
+	createResponse, createBlogError := c.CreateBlog(context.Background(), &blogpb.CreateBlogRequest{Blog: blog})
 	if createBlogError != nil {
 		log.Fatalf("Unexpected createBlogError: %v", createBlogError)
 	}
 
-	fmt.Printf("Blog has been created: %v\n", createBlogResponse)
+	fmt.Printf("Blog has been created: %v\n", createResponse)
+	blogId := createResponse.GetBlog().GetId()
 
 	// read blog
-	fmt.Printf("Reading the blog...\n")
+	{
+		fmt.Printf("Reading the blog...\n")
 
-	readBlogResponse, readBlogError := c.ReadBlog(context.Background(), &blogpb.ReadBlogRequest{BlogId: "62318bb6d1dc923a9a5b11d0"})
-	if readBlogError != nil {
-		fmt.Printf("Error happened while reading: %v\n", readBlogError)
+		_, readBlogError := c.ReadBlog(context.Background(), &blogpb.ReadBlogRequest{BlogId: "62318bb6d1dc923a9a5b11d0"})
+		if readBlogError != nil {
+			fmt.Printf("Error happened while reading: %v\n", readBlogError)
+		}
+
+		readBlogRequest := &blogpb.ReadBlogRequest{BlogId: blogId}
+		readBlogResponse, readBlogError := c.ReadBlog(context.Background(), readBlogRequest)
+		if readBlogError != nil {
+			fmt.Printf("Error happened while reading: %v\n", readBlogError)
+		}
+
+		fmt.Printf("ReadBlog response: %v\n", readBlogResponse)
 	}
 
-	fmt.Printf("ReadBlog response: %v\n", readBlogResponse)
+	// update Blog
+	{
+		fmt.Printf("Updating the blog...\n")
 
-}
+		newBlog := &blogpb.Blog{
+			Id:       blogId,
+			AuthorId: "Author 2",
+			Title:    "Title 2",
+			Content:  "Content 2",
+		}
 
-func doUnary(c greetpb.GreetServiceClient) {
-	fmt.Println("Starting to do a Unary RPC...")
-	req := &greetpb.GreetRequest{
-		Greeting: &greetpb.Greeting{
-			FirstName: "Stephane",
-			LastName:  "Maarek",
-		},
+		updateBlogResponse, updateBlogError := c.UpdateBlog(context.Background(), &blogpb.UpdateBlogRequest{Blog: newBlog})
+		if updateBlogError != nil {
+			fmt.Printf("Error happened while reading: %v\n", updateBlogError)
+		}
+
+		fmt.Printf("UpdateBlog response: %v\n", updateBlogResponse)
 	}
-	res, err := c.Greet(context.Background(), req)
-	if err != nil {
-		log.Fatalf("error while calling Greet RPC: %v", err)
+
+	// delete Blog
+	{
+		deleteBlogResponse, deleteBlogError := c.DeleteBlog(context.Background(), &blogpb.DeleteBlogRequest{BlogId: blogId})
+		if deleteBlogError != nil {
+			fmt.Printf("Error while deleting: %v", deleteBlogError)
+		}
+
+		fmt.Printf("Blog was deleted: %v", deleteBlogResponse)
 	}
-	log.Printf("Response from Greet: %v", res.Result)
+
 }
