@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"google.golang.org/grpc"
+	"io"
 
 	"log"
 )
@@ -18,7 +19,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not connect: %v", err)
 	}
-	defer cc.Close()
+	defer func(cc *grpc.ClientConn) {
+		err := cc.Close()
+		if err != nil {
+			fmt.Printf("Error while closing a cursor: %v", err)
+		}
+	}(cc)
 
 	c := blogpb.NewBlogServiceClient(cc)
 
@@ -62,9 +68,9 @@ func main() {
 
 		newBlog := &blogpb.Blog{
 			Id:       blogId,
-			AuthorId: "Author 2",
-			Title:    "Title 2",
-			Content:  "Content 2",
+			AuthorId: "Changed Author",
+			Title:    "Changed Title",
+			Content:  "Changed  Content",
 		}
 
 		updateBlogResponse, updateBlogError := c.UpdateBlog(context.Background(), &blogpb.UpdateBlogRequest{Blog: newBlog})
@@ -83,6 +89,27 @@ func main() {
 		}
 
 		fmt.Printf("Blog was deleted: %v", deleteBlogResponse)
+	}
+
+	// list Blogs
+	{
+		stream, listBlogError := c.ListBlog(context.Background(), &blogpb.ListBlogRequest{})
+		if listBlogError != nil {
+			log.Fatalf("Error while calling ListBlog: %v", listBlogError)
+		}
+		for {
+			response, streamError := stream.Recv()
+
+			// break when a stream riches to the end
+			if streamError == io.EOF {
+				break
+			}
+			if streamError != nil {
+				log.Fatalf("Error in receiving a stream: %v", streamError)
+			}
+
+			fmt.Printf("ListBlog response: %v", response.GetBlog())
+		}
 	}
 
 }

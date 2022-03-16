@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 	"log"
 	"net"
@@ -184,9 +185,51 @@ func (s server) DeleteBlog(ctx context.Context, request *blogpb.DeleteBlogReques
 	}, nil
 }
 
-func (s server) ListBlog(request *blogpb.ListBlogRequest, blogServer blogpb.BlogService_ListBlogServer) error {
-	//TODO implement me
-	panic("implement")
+func (s server) ListBlog(request *blogpb.ListBlogRequest, stream blogpb.BlogService_ListBlogServer) error {
+	fmt.Println("List blog request...")
+
+	cursor, error := collection.Find(context.Background(), primitive.D{{}}) // D - used because of the order of the elements matters
+	if error != nil {
+		return status.Errorf(
+			codes.Internal,
+			fmt.Sprintf("Unknown internal error: %v", error),
+		)
+	}
+
+	defer func(cursor *mongo.Cursor, ctx context.Context) {
+		err := cursor.Close(ctx)
+		if err != nil {
+			fmt.Printf("Error while closing a cursor: %v", err)
+		}
+	}(cursor, context.Background())
+
+	for cursor.Next(context.Background()) {
+		// create an empty struct for response
+		data := &blogItem{}
+		if error := cursor.Decode(data); error != nil {
+			return status.Errorf(
+				codes.Internal,
+				fmt.Sprintf("Error while decoding data from MongoDB: %v", error),
+			)
+		}
+
+		// send a blog via stream
+		if error := stream.Send(&blogpb.ListBlogResponse{Blog: dataToBlogPb(data)}); error != nil {
+			return status.Errorf(
+				codes.Internal,
+				fmt.Sprintf("Error while sending a stream: %v", error),
+			)
+		}
+	}
+
+	if err := cursor.Err(); err != nil {
+		return status.Errorf(
+			codes.Internal,
+			fmt.Sprintf("Unknown internal error: %v", error),
+		)
+	}
+
+	return nil
 }
 
 func main() {
@@ -221,8 +264,12 @@ func main() {
 		log.Fatalf("FAILED TO LISTEN %v", err)
 	}
 
-	s := grpc.NewServer()
+	var options []grpc.ServerOption
+	s := grpc.NewServer(options...)
 	blogpb.RegisterBlogServiceServer(s, &server{})
+
+	// Register reflection service on gRPC server
+	reflection.Register(s)
 
 	go func() {
 		fmt.Println("Starting Blog Server...")
@@ -238,14 +285,17 @@ func main() {
 	// Block until a signal is received
 	<-ch
 
-	fmt.Println("Stopping the server")
-	s.Stop()
+	// 1st: close the connection with db
+	fmt.Println("Closing MongoDb connection")
+	client.Disconnect(context.TODO())
 
+	// 2nd: close the listener
 	fmt.Println("Closing the listener")
 	lis.Close()
 
-	fmt.Println("Closing MongoDb connection")
-	client.Disconnect(context.TODO())
+	// Finally, stop the server
+	fmt.Println("Stopping the server")
+	s.Stop()
 
 	fmt.Println("End of Program")
 }
